@@ -32,9 +32,9 @@ export function AdminSidebar() {
   };
 
   return (
-    <aside className="flex min-h-screen w-60 flex-col bg-gray-900 text-white">
+    <aside className="bg-sidebar text-sidebar-foreground flex min-h-screen w-60 flex-col">
       {/* 로고 영역 */}
-      <div className="flex h-16 items-center justify-center border-b border-gray-800">
+      <div className="border-sidebar-border flex h-16 items-center justify-center border-b">
         <Link href="/admin/dashboard" className="text-xl font-bold">
           Gather Admin
         </Link>
@@ -50,8 +50,10 @@ export function AdminSidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 transition-colors hover:bg-gray-800 ${
-                active ? "border-primary border-l-4 bg-gray-800" : ""
+              className={`hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-3 px-4 py-3 transition-colors ${
+                active
+                  ? "border-primary bg-sidebar-accent text-sidebar-accent-foreground border-l-4"
+                  : ""
               }`}
             >
               <Icon className="h-5 w-5" />
@@ -62,9 +64,9 @@ export function AdminSidebar() {
       </nav>
 
       {/* 로그아웃 버튼 */}
-      <div className="border-t border-gray-800 p-4">
+      <div className="border-sidebar-border border-t p-4">
         <button
-          className="flex w-full items-center gap-3 rounded px-4 py-3 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex w-full items-center gap-3 rounded px-4 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           onClick={handleSignOut}
           disabled={isPending}
         >
