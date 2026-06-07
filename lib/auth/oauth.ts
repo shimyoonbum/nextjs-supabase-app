@@ -14,7 +14,8 @@ export async function signInWithGoogle(redirectPath: string = "/") {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: `${window.location.origin}/auth/callback?next=${redirectPath}`,
+      // redirectPath가 쿼리스트링(예: /events?tab=mine)을 포함해도 깨지지 않도록 인코딩
+      redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectPath)}`,
     },
   });
 
