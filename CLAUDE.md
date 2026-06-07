@@ -147,8 +147,3 @@ supabase.from("events").select(`
 - **인라인 스타일**: 금지 — Tailwind CSS 유틸리티 클래스만 사용
 - **컴포넌트 기본값**: Server Component. `'use client'`는 브라우저 API/이벤트 핸들러/React Hook이 필요한 경우만
 - **주석/문서**: 한국어 작성, 변수명/함수명은 영어
-
-## 테스트 계정
-
-- 일반 사용자: gymcoding@gmail.com / qwer1234
-- 관리자: bruce.lean17@gmail.com / qwer1234
