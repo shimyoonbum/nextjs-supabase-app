@@ -176,15 +176,19 @@ export async function getEventStats(): Promise<EventStats> {
     const dates = getRecentDates(30);
     const startDate = dates[0]; // 가장 오래된 날짜
 
-    // 이벤트 생성 데이터와 사용자 가입 데이터를 병렬 조회
-    const [eventData, userData] = await Promise.all([
-      supabase.from("events").select("created_at").gte("created_at", startDate),
+    // 이벤트(전체)·사용자 가입·참여자 데이터를 병렬 조회
+    // 이벤트는 추이/상태분포/인기이벤트 제목에 모두 사용하므로 전체를 한 번에 조회
+    const [eventsRes, userData, participantsRes] = await Promise.all([
+      supabase.from("events").select("id, title, status, created_at"),
       supabase.from("profiles").select("created_at").gte("created_at", startDate),
+      supabase.from("event_participants").select("event_id"),
     ]);
 
-    // 날짜별 이벤트 생성 수 그룹화
+    const events = eventsRes.data ?? [];
+
+    // 날짜별 이벤트 생성 수 그룹화 (최근 30일)
     const eventTrend: ChartDataPoint[] = dates.map((date) => {
-      const count = eventData.data?.filter((e) => e.created_at.startsWith(date)).length ?? 0;
+      const count = events.filter((e) => e.created_at.startsWith(date)).length;
       return { date, value: count };
     });
 
@@ -194,17 +198,47 @@ export async function getEventStats(): Promise<EventStats> {
       return { date, value: count };
     });
 
+    // 이벤트 상태별 분포 (예정/진행 중/종료)
+    const statusLabels: Record<string, string> = {
+      upcoming: "예정",
+      ongoing: "진행 중",
+      ended: "종료",
+    };
+    const statusCounts: Record<string, number> = { upcoming: 0, ongoing: 0, ended: 0 };
+    events.forEach((e) => {
+      if (e.status in statusCounts) statusCounts[e.status] += 1;
+    });
+    const eventStatusDistribution = Object.entries(statusLabels).map(([key, name]) => ({
+      name,
+      value: statusCounts[key] ?? 0,
+    }));
+
+    // 인기 이벤트 TOP 5 (참여자 수 기준)
+    const participantCounts = new Map<string, number>();
+    (participantsRes.data ?? []).forEach((p) => {
+      participantCounts.set(p.event_id, (participantCounts.get(p.event_id) ?? 0) + 1);
+    });
+    const titleById = new Map(events.map((e) => [e.id, e.title]));
+    const topEvents = [...participantCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id, count]) => ({ name: titleById.get(id) ?? "알 수 없음", participants: count }));
+
     return {
       event_trend: eventTrend,
       user_trend: userTrend,
+      event_status_distribution: eventStatusDistribution,
+      top_events: topEvents,
     };
   } catch (error) {
     console.error("[ADMIN] 통계 데이터 조회 실패:", error);
-    // 에러 발생 시 빈 배열 반환
+    // 에러 발생 시 빈 데이터 반환
     const emptyDates = getRecentDates(30);
     return {
       event_trend: emptyDates.map((date) => ({ date, value: 0 })),
       user_trend: emptyDates.map((date) => ({ date, value: 0 })),
+      event_status_distribution: [],
+      top_events: [],
     };
   }
 }
@@ -248,7 +282,7 @@ export async function getAdminEvents(
     let query = supabase.from("events").select(
       `
         *,
-        host:profiles!events_created_by_fkey(id, username, avatar_url)
+        host:profiles!events_created_by_fkey(id, username, full_name, avatar_url)
       `,
       { count: "exact" }
     );
@@ -311,7 +345,7 @@ export async function getAdminEvents(
     // 최종 데이터 매핑
     const eventsWithCount: EventTableRow[] = events.map((event) => ({
       ...event,
-      host_name: event.host?.username || "알 수 없음",
+      host_name: event.host?.full_name || event.host?.username || "알 수 없음",
       participant_count: countMap[event.id] ?? 0,
     }));
 

@@ -8,7 +8,6 @@ import { UserTrendChart } from "@/components/admin/charts/user-trend-chart";
 import { TopEventsChart } from "@/components/admin/charts/top-events-chart";
 import { getEventStatsAction } from "@/app/actions/admin";
 import type { EventStats } from "@/lib/types/admin";
-import { eventStatusData, topEventsData } from "@/lib/data";
 
 /**
  * 통계 분석 페이지
@@ -70,13 +69,13 @@ export default function AdminStatsPage() {
             </CardContent>
           </Card>
 
-          {/* 이벤트 상태 분포 (더미 데이터 유지) */}
+          {/* 이벤트 상태 분포 */}
           <Card>
             <CardHeader>
               <CardTitle>이벤트 상태 분포</CardTitle>
             </CardHeader>
             <CardContent>
-              <EventStatusChart data={eventStatusData} />
+              <EventStatusChart data={stats.event_status_distribution} />
             </CardContent>
           </Card>
 
@@ -90,13 +89,13 @@ export default function AdminStatsPage() {
             </CardContent>
           </Card>
 
-          {/* 인기 이벤트 TOP 5 (더미 데이터 유지) */}
+          {/* 인기 이벤트 TOP 5 */}
           <Card>
             <CardHeader>
               <CardTitle>인기 이벤트 TOP 5</CardTitle>
             </CardHeader>
             <CardContent>
-              <TopEventsChart data={topEventsData} />
+              <TopEventsChart data={stats.top_events} />
             </CardContent>
           </Card>
         </div>

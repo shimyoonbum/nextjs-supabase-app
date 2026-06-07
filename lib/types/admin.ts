@@ -45,16 +45,42 @@ export interface ChartDataPoint {
 }
 
 /**
+ * 이벤트 상태 분포 데이터 포인트 (예정/진행 중/종료)
+ *
+ * @property name - 상태 라벨 (예: '예정')
+ * @property value - 해당 상태의 이벤트 수
+ */
+export interface EventStatusDatum {
+  name: string;
+  value: number;
+}
+
+/**
+ * 인기 이벤트 데이터 포인트
+ *
+ * @property name - 이벤트 제목
+ * @property participants - 참여자 수
+ */
+export interface TopEventDatum {
+  name: string;
+  participants: number;
+}
+
+/**
  * 통계 데이터 타입
  *
  * 대시보드에 표시되는 차트 데이터 모음입니다.
  *
  * @property event_trend - 이벤트 생성 추이 (일별 데이터)
  * @property user_trend - 사용자 가입 추이 (일별 데이터)
+ * @property event_status_distribution - 이벤트 상태별 분포
+ * @property top_events - 참여자 수 기준 인기 이벤트 TOP 5
  */
 export interface EventStats {
   event_trend: ChartDataPoint[];
   user_trend: ChartDataPoint[];
+  event_status_distribution: EventStatusDatum[];
+  top_events: TopEventDatum[];
 }
 
 /**

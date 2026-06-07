@@ -1,16 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
-import { Calendar, MapPin, Users, Edit } from "lucide-react";
+import { Calendar, MapPin, Edit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EventActionButtons } from "@/components/events/event-action-buttons";
+import { RealtimeParticipants } from "@/components/events/realtime-participants";
 import { getEventDetail, isUserHost } from "@/lib/queries/events";
-import { formatDate, getInitials } from "@/lib/utils/format";
+import { formatDate } from "@/lib/utils/format";
 import { createClient } from "@/lib/supabase/server";
-import type { ParticipantWithUser } from "@/lib/types/models";
 
 /**
  * 이벤트 상세 페이지 (Server Component)
@@ -116,14 +115,6 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
               <p className="font-medium">{event.location}</p>
             </div>
           </div>
-
-          <div className="flex items-start gap-3">
-            <Users className="text-muted-foreground mt-0.5 h-5 w-5" />
-            <div>
-              <p className="text-muted-foreground text-sm">참여자</p>
-              <p className="font-medium">{event.participant_count}명 참여</p>
-            </div>
-          </div>
         </CardContent>
       </Card>
 
@@ -142,33 +133,8 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
         </CardContent>
       </Card>
 
-      {/* 참여자 목록 */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="space-y-4">
-            <h2 className="font-semibold">참여자 목록</h2>
-            <div className="space-y-3">
-              {event.participants.map((participant: ParticipantWithUser) => (
-                <div key={participant.id} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Avatar>
-                      <AvatarImage
-                        src={participant.user.avatar_url ?? undefined}
-                        alt={participant.user.username ?? ""}
-                      />
-                      <AvatarFallback>{getInitials(participant.user.username)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">{participant.user.username}</p>
-                    </div>
-                  </div>
-                  {participant.role === "host" && <Badge variant="secondary">호스트</Badge>}
-                </div>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* 참여자 목록 (Supabase Realtime 으로 실시간 갱신) */}
+      <RealtimeParticipants eventId={id} initialParticipants={event.participants} />
     </div>
   );
 }
