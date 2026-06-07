@@ -46,3 +46,10 @@ next-env.d.ts
 
 # local claude settings
 .claude/settings.local.json
+
+# Playwright MCP 산출물
+.playwright-mcp/
+
+# Playwright 테스트 산출물
+/test-results/
+/playwright-report/
