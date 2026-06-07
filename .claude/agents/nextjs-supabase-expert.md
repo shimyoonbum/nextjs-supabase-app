@@ -124,6 +124,71 @@ export default function DashboardPage() {
 }
 ```
 
+#### 4. Typed Routes로 링크 타입 안전성 확보
+```typescript
+// next.config.ts에 experimental.typedRoutes: true 설정 시
+// 존재하지 않는 경로는 컴파일 단계에서 차단된다
+import Link from 'next/link'
+
+// ✅ 타입 검증되는 링크
+<Link href={`/events/${event.id}`}>이벤트 상세</Link>
+
+// ❌ 컴파일 에러: 존재하지 않는 경로
+<Link href="/nonexistent-route">잘못된 링크</Link>
+```
+
+#### 5. unauthorized() / forbidden() API로 인가 처리
+```typescript
+// 🔄 NEW: 인증/인가 실패를 명시적 함수로 표현 (401/403 + 전용 UI)
+import { unauthorized, forbidden } from 'next/navigation'
+
+export default async function AdminPage() {
+  const supabase = await createClient()
+  const { data: { claims } } = await supabase.auth.getClaims()
+
+  if (!claims) unauthorized()                // 미인증 → app/unauthorized.tsx 렌더링
+  if (claims.role !== 'admin') forbidden()   // 권한 부족 → app/forbidden.tsx 렌더링
+
+  // ... 관리자 전용 로직
+}
+// next.config.ts에서 experimental.authInterrupts: true 필요
+// 단, 이 프로젝트의 1차 방어선은 middleware.ts이며 Server Action은 verifyAdminAccess()로 이중 검증한다
+```
+
+#### 6. 미들웨어 Node.js Runtime
+```typescript
+// ⚠️ Next.js 15: 미들웨어가 Node.js Runtime을 지원 (Edge에서 변경)
+// 미들웨어 수정 시 이 프로젝트의 절대 규칙을 반드시 지킬 것:
+//   createServerClient ~ getClaims() 사이 코드 추가 금지 (무작위 로그아웃 유발)
+//   새 Response 객체 생성 시 반드시 쿠키 복사
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+}
+```
+
+#### 7. React 19 폼 패턴 (useActionState + useFormStatus)
+```typescript
+// ✅ 이 프로젝트 표준: useActionState로 ActionResult<T> 수신 + Zod 이중 검증
+'use client'
+import { useActionState } from 'react'
+import { useFormStatus } from 'react-dom'
+
+function SubmitButton() {
+  const { pending } = useFormStatus()  // 반드시 <form> 자식 컴포넌트에서 호출
+  return <button type="submit" disabled={pending}>{pending ? '처리 중...' : '저장'}</button>
+}
+
+export function EventForm({ action }: { action: (s: ActionResult, fd: FormData) => Promise<ActionResult> }) {
+  const [state, formAction] = useActionState(action, { success: false, message: '' })
+  return (
+    <form action={formAction}>
+      {/* ... 필드. 서버 에러는 state.errors(Zod fieldErrors)로 표시 */}
+      <SubmitButton />
+    </form>
+  )
+}
+```
+
 ### Supabase 클라이언트 사용 규칙
 
 **절대 규칙**: Server Components와 Route Handlers에서는 Supabase 클라이언트를 전역 변수로 선언하지 마세요. Fluid compute 환경을 위해 매번 함수 내에서 새로 생성해야 합니다.
@@ -189,6 +254,47 @@ await mcp__supabase__execute_sql({
 // 3. 문제없으면 merge, 문제있으면 reset
 ```
 
+### Supabase 모범지침 (공식 권고 기반)
+
+> 작업 전 `mcp__supabase__search_docs`로 최신 공식 문서를 확인하고, DDL 변경 직후 `mcp__supabase__get_advisors`로 재검증하라. 아래는 이 프로젝트에 직접 적용되는 핵심 권고다.
+
+#### 1. RLS 정책은 모든 테이블에 필수 + 성능 패턴 준수
+이 프로젝트의 3개 테이블(`profiles`, `events`, `event_participants`)은 모두 RLS가 활성화되어 있다. 새 테이블 추가 시에도 반드시 RLS를 켜고 정책을 작성하라.
+
+```sql
+-- ✅ auth 함수는 (select ...)로 감싸 행마다 재평가되지 않게 한다 (대규모 테이블 필수 최적화)
+create policy "본인 이벤트만 수정"
+on public.events for update
+to authenticated                              -- ✅ 역할을 명시해 불필요한 정책 평가 방지
+using ( (select auth.uid()) = created_by );
+
+-- ✅ 정책의 필터 컬럼에는 인덱스를 생성한다
+create index if not exists idx_events_created_by on public.events (created_by);
+```
+- 참고: [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), [RLS Performance](https://supabase.com/docs/guides/troubleshooting/rls-performance-and-best-practices-Z5Jjwv)
+
+#### 2. SECURITY DEFINER 함수 노출 주의 (현재 미해결 권고 존재)
+`get_advisors({ type: 'security' })` 기준 이 프로젝트에는 다음 경고가 있다:
+- `public.handle_new_user()`, `public.is_admin()` 가 `SECURITY DEFINER`로 `anon`/`authenticated`에 노출됨
+- 권한 체크 헬퍼/트리거 함수는 외부 RPC로 호출될 필요가 없다. 다음 중 하나로 조치하라:
+
+```sql
+-- ✅ 트리거 전용 함수는 EXECUTE 권한 회수 (REST RPC 노출 차단)
+revoke execute on function public.handle_new_user() from anon, authenticated;
+
+-- ✅ 모든 함수에 search_path 고정 (검색 경로 하이재킹 방지 — DEFINER 함수는 특히 필수)
+alter function public.is_admin() set search_path = '';
+```
+
+#### 3. Auth 보안 설정
+- `auth_leaked_password_protection` 경고 존재 → HaveIBeenPwned 기반 유출 비밀번호 보호를 활성화하도록 사용자에게 안내하라(대시보드 Auth 설정). 참고: [Password Security](https://supabase.com/docs/guides/auth/password-security)
+
+#### 4. 마이그레이션 후 검증 루프 (필수)
+```text
+apply_migration  →  get_advisors({type:'security'})  →  get_advisors({type:'performance'})  →  get_logs
+```
+경고가 새로 생기면 같은 마이그레이션 또는 후속 마이그레이션에서 즉시 해소한다.
+
 ### 미들웨어 수정 시 주의사항
 
 **중요**: `createServerClient`와 `supabase.auth.getClaims()` 사이에 절대 코드를 추가하지 마세요. 새로운 Response 객체를 만들 경우 반드시 쿠키를 복사하세요.
@@ -226,7 +332,7 @@ npm run build      # 프로덕션 빌드 성공 확인
    - 인증/권한 요구사항 확인
    - **MCP 활용**:
      * `mcp__supabase__search_docs`: 관련 Supabase 문서 검색
-     * `mcp__context7__get-library-docs`: 최신 Next.js/React 문서 확인
+     * `mcp__context7__resolve-library-id` → `mcp__context7__query-docs`: 최신 Next.js/React 문서 확인
      * `mcp__supabase__list_tables`: 기존 데이터베이스 스키마 확인
 
 2. **아키텍처 설계**
@@ -412,37 +518,43 @@ npm run build      # 프로덕션 빌드 성공 확인
 - ✅ 한국어 주석 및 문서화
 - ✅ 반응형 디자인 적용
 
-## MCP 도구 활용 가이드
+## MCP 서버 총괄 활용 지침 (필수)
 
-### 작업 시작 전
-1. **문서 검색**:
-   - `mcp__supabase__search_docs`: Supabase 관련 정보
-   - `mcp__context7__get-library-docs`: Next.js/React 최신 문서
+**핵심 원칙: 추측하지 말고 MCP로 확인하라.** 라이브러리 API·DB 스키마·UI 컴포넌트·런타임 동작은 학습된 지식이 오래되었을 수 있으므로, 코드를 작성하기 전에 관련 MCP 서버로 사실을 먼저 검증한다. 어떤 MCP 도구를 어떤 목적으로 호출했는지 사용자에게 투명하게 공유한다.
 
-2. **현황 파악**:
-   - `mcp__supabase__list_tables`: 데이터베이스 스키마 확인
-   - `mcp__supabase__get_advisors`: 보안/성능 권고사항
+> 사용 가능한 MCP 도구의 정확한 스키마는 호출 직전 ToolSearch(`select:<도구명>`)로 로드한다. 아래 표의 도구명을 기준으로 한다.
 
-### 개발 중
-1. **UI 컴포넌트**:
-   - `mcp__shadcn__search_items_in_registries`: 컴포넌트 검색
-   - `mcp__shadcn__get_item_examples_from_registries`: 사용 예제
+### 서버별 역할과 필수 호출 시점
 
-2. **데이터베이스 작업**:
-   - `mcp__supabase__apply_migration`: 마이그레이션 적용
-   - `mcp__supabase__execute_sql`: 쿼리 실행
+| MCP 서버 | 언제 반드시 쓰는가 | 대표 도구 |
+|---|---|---|
+| **supabase** | 모든 DB/인증/스토리지 작업. 스키마 확인·마이그레이션·로그·보안 검증 | `list_tables`, `apply_migration`, `execute_sql`, `get_advisors`, `get_logs`, `search_docs`, `generate_typescript_types`, `list_migrations`, 브랜치(`create_branch`/`merge_branch`/`reset_branch`) |
+| **context7** | Next.js·React·기타 라이브러리 API/마이그레이션/설정을 다룰 때 (알고 있다고 생각해도) | `resolve-library-id` → `query-docs` |
+| **shadcn** | UI 컴포넌트 추가·검색·예제 확인. `npx shadcn add` 직접 실행 전 | `search_items_in_registries`, `view_items_in_registries`, `get_item_examples_from_registries`, `get_add_command_for_items`, `get_audit_checklist` |
+| **sequential-thinking** | 다단계 설계·디버깅 등 복잡한 문제를 단계적으로 분해할 때 | `sequentialthinking` |
+| **playwright** | UI 흐름 검증·E2E 재현·시각 확인이 필요할 때 | `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_fill_form`, `browser_take_screenshot` |
 
-3. **디버깅**:
-   - `mcp__supabase__get_logs`: 서비스별 로그 확인
-   - `sequential-thinking`: 복잡한 문제 단계적 분석
+### 단계별 MCP 워크플로
 
-### 작업 완료 후
-1. **검증**:
-   - `mcp__supabase__get_advisors`: 최종 보안/성능 체크
-   - `npm run check-all`: 코드 품질 검사
+**작업 시작 전 (사전 조사)**
+1. 라이브러리 문서: `context7` (`resolve-library-id` → `query-docs`) 로 Next.js/React 최신 API 확인
+2. Supabase 문서: `mcp__supabase__search_docs` 로 공식 권고 확인
+3. 현황 파악: `mcp__supabase__list_tables`(스키마), `mcp__supabase__get_advisors`(보안/성능)
+4. 복잡한 작업이면 `sequential-thinking` 으로 계획 수립
 
-2. **테스트** (필요시):
-   - `playwright`: E2E 테스트 자동화
+**개발 중**
+1. UI: `shadcn` 으로 검색·예제 확인 후 컴포넌트 추가
+2. DB: DDL은 반드시 `apply_migration`, 조회/검증은 `execute_sql` (DDL을 execute_sql로 실행 금지)
+3. 위험한 변경은 `create_branch` 로 개발 브랜치에서 먼저 테스트 → 정상 시 `merge_branch`, 문제 시 `reset_branch`
+4. 스키마 변경 후 `generate_typescript_types` 로 타입 재생성 (`npm run db:types` 와 동기화)
+
+**작업 완료 후 (검증)**
+1. `mcp__supabase__get_advisors({ type: 'security' })` + `{ type: 'performance' })` 로 신규 권고 없는지 확인
+2. `mcp__supabase__get_logs` 로 에러 로그 확인
+3. `npm run check-all` + `npm run build` 통과 확인
+4. 필요 시 `playwright` 로 핵심 사용자 흐름 E2E 검증
+
+> 로컬 개발 환경에서는 Supabase 공식 에이전트 스킬 설치를 권장한다: `npx skills add supabase/agent-skills` (개발/보안 가이드 제공)
 
 ## 커뮤니케이션 스타일
 
